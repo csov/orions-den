@@ -1,8 +1,8 @@
-# The crypto protocols
+# Fundamentals
 
-## Fundamentals
+## Core encryption primitives
 
-### Core encryption primitives
+We use Kyber and Falcon for post-quantum secure key exchange and signatures. Each lattice based algorithm is complemented with ecliptic counterpart for redundancy. After key exchange, we use AES-GCM to encrypt messages at transit, because it ensures integrity and authenticity of the messages. For generic hashing we chose Blake3.
 
 ```mermaid
 flowchart TB
@@ -13,7 +13,6 @@ flowchart TB
     end
     kyber-->key_encapsulation
     x25519-->key_encapsulation
-    aesGcm-->key_encapsulation
 
     subgraph signature_verification
         SKeypair
@@ -28,14 +27,43 @@ flowchart TB
     end
     blake3-->hashing
 
+    subgraph symetric_encryption
+        encrypt
+        decrypt
+    end
+    aesGcm-->symetric_encryption
+
     Nonce-->Proof
     SPublicKey-->Proof
     Signature-->Proof
 ```
 
-### Onion routing
+## Post-Quantum Transport Layer Security (PQTLS)
 
-#### Setup
+Network uses custom post-quantum handshake based of Falkon for identity verification and Kyber for key exchange. We decided to make our own since we only communicate within the network and standards like **Noise** or **TLS** either aren't post-quantum secure or don't work in browsers. Besides, its trivial to implement.
+
+```mermaid
+sequenceDiagram
+    participant C as Initiator
+    participant S as Responder
+
+    C ->>+ S: Falcon Public Key + Kyber Public Key + Sign Challenge
+    S ->>+ C: Falcon Public Key + Kyber Public Key + Proof + Sign Challenge + Kyber Ciphetext
+    C ->>+ S: Proof + Kyber Ciphertext
+    Note over C,S: Both sides have shared secret and verified each other's identity
+```
+
+## Onion routing
+
+We use onion routing as a form of decentralized VPN. Since we only need to relay requests to servers within the network, we don't need to be compatible with any existing TOR network. Key differences form TOR (as an example):
+
+- we always use 2 relays
+- we use our own encryption scheme based of Kyber
+- the protocol is browser agnostic (we only require reliable connection)
+
+### Setup
+
+Before sending any messages, **sender** and **recipient** needs to establish a **shared secret** without recipient or relays knowing where client is. This is done with initialization **packet** that has multiple layers of encryption to hide full path from relays and server.
 
 ```mermaid
 flowchart TB
@@ -63,254 +91,168 @@ flowchart TB
     Recipient --> Secret[[Secret]]
 ```
 
-#### Communication
+## Communication
+
+After the initialization packet gets delivered, both sides have **shared secret** and can simply use AES-GCM to encrypt and decrypt messages on transit. In this case we don't need need multiple layers of encryption, since route is established and nodes only forward encrypted stream.
 
 ```mermaid
 flowchart TB
-    subgraph Shared
-        Secret[[Secret]]
-    end
+    Secret[[Secret]]
 
     subgraph Client
         Message(((Message))) --> aesGcmEncrypt
-        Secret --> aesGcmEncrypt
     end
 
     subgraph Recipient
-        Secret --> aesGcmDecrypt --> m2(((Message)))
+        aesGcmDecrypt --> m2(((Message)))
     end
 
+    Secret --> aesGcmDecrypt
+    Secret --> aesGcmEncrypt
     aesGcmEncrypt --> Node1 --> Node2 --> aesGcmDecrypt
 ```
 
-## Chat implementation comparison
+# The Message Relay Network
 
-### Central Buffer
+The network provides most flexible, bare minimum to implement highly secure peer to peer, ephemeral messaging. Exposed API makes no assumption about format and encryption to the extent that two clients can not understand each other. This is simpler to implement and allows for more types of clients.
+
+## Distributed Hash Table
+
+Location of any data related to users is stored on the network with deterministic location. Since all nodes need to stake on chain, their public key and IP address is publicly known. User with full topology can compute which nodes are the closest to the given key (XOR distance). This is magnitudes more performant the using Dynamic DHT like Kademlia (for our use-case). Nodes can listen for events form the block-chain to always have synchronized topology.
+
+## User Profiles
+
+Main feature of the network is to relay ephemeral messages. Users of the network are identified by their public key that also decides which nodes in the network store their profile information. As long as you know users public key, you know where his profile is, which is necessary to send ephemeral messages.
+
+## Mailbox
+
+Each user profile has associated file (**mailbox**) that stores sequence of **mail**. Mail is simply an arbitrary blob that was sent by another user when profile owner is offline. Nodes cap the mailbox size and sender needs to perform proof of work to send the mail. In other cases, when user is online, the mail is sent directly, without being stored in the mailbox. Owner has permission to read the **mailbox** which clears it. Thus messages sent trough the mail are ephemeral.
 
 ```mermaid
 sequenceDiagram
-    actor C as Client
-    participant CN as Command node
-    participant SN as Subscription node
+    actor S as Sender
+    participant SE as Sender Entry
+    participant ON as Other Replicators
+    participant RS as Recipient Subscription
     actor R as Recipient
 
-    Note over C,CN: Onion route
-    Note over SN,R: Onion route
-    Note over CN,SN: Together form an replication group
-    C ->>+ CN: SendMessage(Proof, Content)
-    CN ->> SN: Replicate(Proof, Content)
-    CN ->>- C: MessageSent | ErrorOccured
-    SN ->> R: SendMessage(Proof, Content)
+    Note over SE,RS: Direct Connections
+    RS ->+ R: Offline
+    SE -> S: Connect Onion Route
+
+    S ->>+ SE: Mail(PoW, Recipient, Blob)
+    SE ->>+ RS: Direct(PoW, Recipient, Blob)
+    RS ->>- SE: Error(RecipientOffline)
+    RS ->> RS: Store(Blob)
+    SE ->> ON: Save(PoW, Recipient, Blob)
+    ON ->> ON: Store(Blob)
+    SE ->> SE: Store(Blob)
+    SE ->>- S: Success(MailSent)
+
+    R ->- RS: Connect Onion Route
+    R ->>+ RS: ReadMail(Proof)
+    RS ->>+ ON: Replicate(ReadMail(Proof))
+    RS ->>+ SE: Replicate(ReadMail(Proof))
+    ON ->>- RS: MailList(Blob)
+    SE ->>- RS: MailList(Blob)
+    RS ->>- R: MailList(Blob)
+    
+    S ->>+ SE: Mail(PoW, Recipient, Blob)
+    SE ->>+ RS: Direct(PoW, Recipient, Blob)
+    RS ->> R: Mail(Blob)
+    RS ->>- SE: Success(MailSentDirectly)
+    SE ->>- S: Success(MailSent)
 ```
 
-The servers and also the recipient validate the proof attached to a message when it occurs. Problem appears when user retroactively reads the messages from the common buffer. Buffer cannot store the signatures for each message permanently since dilithium signatures are almost 5kb large. Malicious node can advertise false chat history to new nodes.
+## Profile Vault
 
-#### Lazy redistribution + Consistency voting
+User need to be able to store arbitrary data permanently to ensure they don't loose things like friend list and associated secrets (Double-Ratchet). Users might also want to pin arbitrary data to their profile for others to view. For this reason, every profile has associated key value store with limited capacity. Changes to the store are authenticated by signature of Merkle-Tree root that nodes in replication group and users can verify. Values in the vault are opaque to the nodes and clients specify how and what they store there.
 
-Lets go trough scenario where problems may occur:
+# Message Block Chain
 
-- node enters/leaves the network
-    - client connects to a node, since it discovers it as one of N closest nodes to data he is interested in
-    - node does not have knowledge of this data due to it either being new or being pushed into replication group due to other node leaving
-    - node tells client the chat does not exist (unwanted outcome)
+Another feature network offers is message blockchain with access control. This form of messaging allows for scalable and archivable community-like chats. This is achieved with distributed random function consensus.
 
-To prevent this, requested node must verify its not supposed to have the data requested by querying closest nodes to the requested key. If the node is in fact in the group, it requests values from other nodes, majority of consistent values will be replicated and served to the client. The majority vote can be optimized to relief network bandwidth. Nodes will be sent common sequence of bytes which they combine with the hash of the value to be replicated and return that back to the requesting node. From majority matching hashes is one chosen to fetch the key.
+## DRF Consensus
+
+Nodes need to synchronize the order of message history so it has consistent hash, for this one of the nodes is choosen whith pseudorandom function seeded by previous block hash. Each node vaidates the block and send his vote to others. When node accumulate either no or yes majority they will accept of delete the block.
 
 ```mermaid
-sequenceDiagram
-    actor C as Client
-    participant NN as New node
-    participant ON1 as Old Node 1
-    participant ON2 as Old Node 2
-    participant ON3 as Old Node 3
+flowchart
+    classDef prop stroke:#0a418a,stroke-width:3px
+    classDef wait stroke:#8a740a,stroke-width:3px
+    classDef voteY stroke:#0a7d06,stroke-width:3px
+    classDef voteN stroke:#7d0606,stroke-width:3px
 
-    C ->>+ NN: FetchMessages(Chat, Cursor)
-    break is not part of replication group
-        NN ->> C: Response(NotFound)
+    subgraph Proposal
+        direction TB
+
+        CA((A Proposing)):::prop
+        CB((B Waiting)):::wait
+        CC((C Waiting)):::wait
+        CD((D Waiting)):::wait
+        CE((E Waiting)):::wait
+
+        CA -->|block| CB
+        CA -->|block| CC
+        CA -->|block| CD
+        CA -->|block| CE
+
+        linkStyle 0,1,2,3 stroke:#0a418a,stroke-width:3px
     end
-    alt does not have chat
-        par
-            NN ->>+ ON1: GetHash(Chat, CommonBytes)
-            ON1 ->>- NN: Response(Hash1)
-        and
-            NN ->>+ ON2: GetHash(Chat, CommonBytes)
-            ON2 ->>- NN: Response(Hash1)
-        and
-            NN ->>+ ON3: GetHash(Chat, CommonBytes)
-            ON3 ->>- NN: Response(Hash2)
-        end
-        NN ->>+ ON2: GetKey(Chat)
-        ON2 ->>- NN: Response(History)
+
+    Proposal --> Voting
+
+    subgraph Voting
+        VA((A Waiting)):::wait
+        VB((B Voting)):::voteY
+        VC((C Voting)):::voteN
+        VD((D Voting)):::voteY
+        VE((E Voting)):::voteY
+
+        VB <-->|no| VC
+        VC <-->|no| VA
+        VC <-->|no| VD
+        VC <-->|no| VE
+        
+        linkStyle 5,6,7,8 stroke:#7d0606,stroke-width:3px
+
+        VB <-->|yes| VA
+        VB <-->|yes| VD
+        VB <-->|yes| VE
+        VD <-->|yes| VA
+        VD <-->|yes| VE
+        VE <-->|yes| VA
+
+        linkStyle 9,10,11,12,13,14 stroke:#0a7d06,stroke-width:3px
     end
-    NN ->>- C: Response(Messages, NewCursor)
+
+    subgraph Finalization
+        direction TB
+        FA((A Finalized)):::prop
+        FB((B Finalized)):::prop
+        FC(("C Finalized\n(overwritten)")):::wait
+        FD((D Finalized)):::prop
+        FE((E Finalized)):::prop
+    end
+    
+    Voting --> Finalization
+
+    subgraph Proposal2
+        direction TB
+
+        C2A((A Waiting)):::wait
+        C2B((B Waiting)):::wait
+        C2C((C Waiting)):::wait
+        C2D((D Propoing)):::prop
+        C2E((E Waiting)):::wait
+
+        C2D -->|block| C2B
+        C2D -->|block| C2C
+        C2D -->|block| C2A
+        C2D -->|block| C2E
+    
+        linkStyle 16,17,18,19 stroke:#0a418a,stroke-width:3px
+    end
+
+    Finalization --> Proposal2
 ```
-
-#### Message blocks
-
-One fundamental problem with introduced protocol is natural message ordering inconsistency. Some order needs to be established that nodes can easily agree on. We can think of messages as of transactions on a block-chain, taking every `M` messages, sorting them, and letting other nodes know about our hash. We send the hash so that nodes can determine the majority (`N/2 + 1`), each hash counts as a vote towards particular version of the block. When enough votes are collected each node either considers the block final, or discards its block and fetches it from all majority nodes.
-
-```mermaid
-sequenceDiagram
-    actor C as Client
-    box Replication Group
-        participant N1 as Node 1
-        participant N2 as Node 2
-        participant N3 as Node 3
-    end
-
-    par
-        C ->> N1: Message1
-    and
-        C ->> N2: Message1
-    and
-        C ->> N3: Message1
-    end
-
-    N1 ->> N1: Block is full, computed hash: Hash1
-    N2 ->> N2: Block is full, computed hash: Hash1
-    N3 ->> N3: Block is full, computed hash: Hash2
-
-    par
-        N1 ->> N2: Propose(Hash1)
-        N1 ->> N3: Propose(Hash1)
-    and
-        N2 ->> N1: Propose(Hash1)
-        N2 ->> N3: Propose(Hash1)
-    and
-        N3 ->> N1: Propose(Hash2)
-        N3 ->> N2: Propose(Hash2)
-    end
-
-    par
-        N1 ->> N1: Winning Proposal: Hash1
-        N1 ->> N3: Replica(Block)
-    and
-        N2 ->> N2: Winning Proposal: Hash1
-        N2 ->> N3: Replica(Block)
-    and
-        N3 ->> N3: Winning Proposal: Hash1 -> waiting for replicas
-    end
-```
-
-Both parameters (`M`, `N`) need to be chosen to strike a balance between reliability and performance. Big `M` can reduce amount of validation cycles but highers the chance of blocks being out of sync. Higher `N` makes it harder to attack majority, but consumes increasing amount of network resources (`O(N)` memory and `O(N^2)` bandwidth.
-
-#### Continuous validation
-
-To increase resilience of the consensus, nodes should send block characteristics to other nodes while replicating an message. Simplest metric of accuracy is amount of messages currently in block (total size of the block can be also considered), main characteristic of a metric is that it does not depend on the order of messages and is easily computable. In this case, the node with the most messages is the winner and will send hashes of the messages to the lacking nodes, that will in turn diff their messages and send hashes of missing messages back. Restored messages need to be flagged as restored to the user as they can appear out of order in which they were sent, the position is determined by adjacency of message hashes. Possible attack vector is fake message flooding. Malicious node could fabricate messages and force others to store them, and for this we again abuse majority to help drive decisions. Wether node is behind can be calculate as median of all message counts. In cases where message hashes miss some messages that lacking node has one of the two options might have happened:
-
-- both nodes are honest and they each missed a different message
-- source of hashes cannot be trusted
-
-This should be decided by a threshold function `t`. Update is accepted when `|missing_hashes| + |missing_messages| < t(|{hash(m) for m in messages, hashes}|)`
-
-#### Handling majority failure
-
-If we want to use lower `N` there is increasing chance of undecidable state occurring. For example, `N = 3` (absolute minimum) and all three nodes have different hash. At this point, every node will proactively share the message hashes of messages and then apply common algorithm to resolve collisions. If two nodes of he group are honest, its likely they have similar chat histories and they can merge the histories. We use the process from previous section. If all updates are denied, nodes propose and then discard all unfinished blocks as a last resort recovery rather then clogging the message creation forever.
-
-```mermaid
-sequenceDiagram
-    box Replication Group
-        participant N1 as Node 1
-        participant N2 as Node 2
-        participant N3 as Node 3
-    end
-
-    loop Proposals sent
-        break majority determined
-            note over N1,N3: Blocks finalized
-        end
-
-        par
-            N1 ->> N2: MessageHashes1
-            N1 ->> N3: MessageHashes2
-        and
-            N2 ->> N1: MessageHashes3
-            N2 ->> N3: MessageHashes4
-        and
-            N3 ->> N1: MessageHashes5
-            N3 ->> N2: MessageHashes6
-        end
-
-        break merging unsuccesfull
-            par
-                N1 ->> N1: Delete Unfinished Blocks
-            and
-                N2 ->> N2: Delete Unfinished Blocks
-            and
-                N3 ->> N3: Delete Unfinished Blocks
-            end
-        end
-
-        par
-            N1 ->> N2: MissingMessages1
-            N1 ->> N3: MissingMessages2
-        and
-            N2 ->> N1: MissingMessages3
-            N2 ->> N3: MissingMessages4
-        and
-            N3 ->> N1: MissingMessages5
-            N3 ->> N2: MissingMessages6
-        end
-    end
-```
-
-## Message multiplexing
-
-Previous solution assumes majority of nodes are legitimate which is traded for performance. This implementation needs only one node in replication group to be honest though cannot be scaled to as many users. Instead of servers maintaining the state of the chat, members of the chat are remembered by each user along with history of messages. When inviting a user, the cached secret key is send along with the chat metadata to invitees mailbox, other users also receive message about this to their mailboxes. When removing a member, each user will validate this for themself and remove the user from recipients -> not sending the messages for the excluded user is enough since every user has separate secret.
-
-```mermaid
-sequenceDiagram
-    actor C as Client
-    participant M1 as Mailbox 1
-    participant M2 as Mailbox 2
-
-    Note over C,M2: Sending invites
-    C ->> M1: EncapsulatedSecret1 + ChatMeta
-    C ->> M2: EncapsulatedSecret2 + ChatMeta
-    C ->> M1: Invited(Owner(Mailbox2))
-    Note over C,M2: Sending messge
-    C ->> M1: Encrypted(Message, Secret1)
-    C ->> M2: Encrypted(Message, Secret2)
-```
-
-## Mail To Online Users
-
-Users subscribe to their mailbox when online, we can use the fact to avoid unnecessary replication of the mail. Node that serves the mail sender requests will first make an RPC call to the closet node to the client, if this node responds with subscribed client being present, this is last call in the process. Otherwise the server will also sends the mail to the rest of the replication group.
-
-```mermaid
-sequenceDiagram
-    actor SN as Sender
-    participant S as Server
-    participant CM as Closest Mailbox
-    participant OM as Other Mailboxes
-    actor R as Recipient
-
-    SN ->> S: Mail
-    S ->> CM: Mail
-
-    alt Recipient is absent
-        CM ->> S: Ack(Absent)
-        S ->> OM: Replica(Mail)
-    else
-        CM ->> R: Mail
-        CM ->> S: Ack(Present)
-    end
-    S ->> SN: Message Sent
-```
-
-# Optimizations
-
-Optimizing the network is crutial for user experience and redustion of costs for miners. In case of decentralized network, we strive to reduce amount of comunication between nodes. The most used protocol in the architecture is DHT, that ensures we know where to store and find data. The simplest way of finding nodes is performing the query each time we are looking for a group of nodes. Lackly DHT maintains a routing table that mignt ont be always up to date, though, since entering the network requires staking, we can assume nodes will not enter and exit the network often. This allows us to consider topology change as a cold path and optimize for common case where we have up to date routing table.
-
-## Query on Failure
-
-Only way outdated routing table can cause the request to fail is when peer no longer interested close enough to the request topic receives the request. TO prevent this, we want to maximize the chance of finding out we are serving to the wrong node:
-
-- recipient checks with his routing table whether it is supposed to serve the request (by topic)
-  - if he isnt, he reports his list of closest nodes to the sender, sender will diff the list and send request to nodes it missed
-    - if new topology obtained from the other node also fails, meaning both nodes are outdated, node will fall back to query and not only send the request but also notify other node baout the failure as a repairing mechanism
-- recipient also checks, if this is request internal to replication group, whether sender is withing the topic
-  - if he isnt, kad lookup is performed, since this can be melacious request, to validate the node in fact is supposed to send the request and routing table is outdated
-    - if table is not outdated and requester is in fact not part of the group, request is denayed and for next time period `P` we ignore such requests from the given peer as a ratelimmiting mechanism
-
-All of these points though are fallback mechanisms, each node should maintain his mapping of nodes obtained form the chain and also listen on events about new nodes joining te network. If the node taht connects to any miner isn't within the staking node list, the connecton is dropped. With full list of nodes we should have good idea about the topology and almost never query for peers.
