@@ -1,3 +1,7 @@
+# Introduction
+
+TODO
+
 # Fundamentals
 
 ## Core encryption primitives
@@ -170,11 +174,11 @@ User need to be able to store arbitrary data permanently to ensure they don't lo
 
 # Message Block Chain
 
-Another feature network offers is message blockchain with access control. This form of messaging allows for scalable and archivable community-like chats. This is achieved with distributed random function consensus.
+Another feature network offers is message block-chain with access control. This form of messaging allows for scalable and archivable community-like chats. This is achieved with distributed random function consensus.
 
 ## DRF Consensus
 
-Nodes need to synchronize the order of message history so it has consistent hash, for this one of the nodes is choosen whith pseudorandom function seeded by previous block hash. Each node vaidates the block and send his vote to others. When node accumulate either no or yes majority they will accept of delete the block.
+Nodes need to synchronize the order of message history so it has consistent hash, for this one of the nodes is chosen with pseudorandom function seeded by previous block hash. Each node validates the block and send his vote to others. When node accumulate either no or yes majority they will accept or ignore the block. The blocks have variable size to account for failed proposals, after each failure different node is chosen to validate and they wrap around. It is possible that nodes will disagree indivisually, in that case, they start deleting oldest messges as the buffer crosses a trashold to eventually agree on a block. We prefer loosing messages over blocking consenzus forever.
 
 ```mermaid
 flowchart
@@ -213,7 +217,7 @@ flowchart
         VC <-->|no| VA
         VC <-->|no| VD
         VC <-->|no| VE
-        
+
         linkStyle 5,6,7,8 stroke:#7d0606,stroke-width:3px
 
         VB <-->|yes| VA
@@ -234,7 +238,7 @@ flowchart
         FD((D Finalized)):::prop
         FE((E Finalized)):::prop
     end
-    
+
     Voting --> Finalization
 
     subgraph Proposal2
@@ -250,9 +254,25 @@ flowchart
         C2D -->|block| C2C
         C2D -->|block| C2A
         C2D -->|block| C2E
-    
+
         linkStyle 16,17,18,19 stroke:#0a418a,stroke-width:3px
     end
 
     Finalization --> Proposal2
 ```
+
+## Access Control
+
+Other part of the message block-chain is access control. Healthy communities need a way to decide who can send messages, invite users, .etc. Servers therefore maintain member list of a given chat that contains hierarchy of roles. Each member has `rank`, `permissions`, and `ratelimit` that define who's profile they can edit, what actions they can perform, and how often they can perform them. Thus far permissions can limit sending messages, inviting users, and removing members. Nodes need to know about this to properly enforce the rules.
+
+# Network Integrity
+
+We need to account for node churn. For this, both profile and message block-chain includes recovery mechanisms. Whenever node leaves or enters, the topology slightly changes and some node's assigned keys change as well. Recovery of data is initiated when operation on it disagrees with majority. This means nodes are lazy so unused data can naturally disappear over time
+
+# Reference Client
+
+As a way of documenting the network API, we provide reference web client implementation that provides group chats and ephemeral messages. The client is self is split into platform independent library and web interface for the library. Notable part of the client is Double-Ratchet with periodic Kyber key rotation and ephemeral chat ids for optimal session lookup. The ephemeral messaging provided here provides highest level of privacy known to us.
+
+## Post-quantum Double-Ratchet
+
+Double-Ratchet (by Signal) provides forward secrecy for peer-to-peer communication. We use slightly modified version that interleaves the Diffie-Hellman exchanges with periodic Kyber exchange. Both peers take turns thanks to period being odd. We don't simply replace DH with Kyber because each such exchange inflates the message size which "reduces" mailbox capacity. Additionally, DR sessions also maintains rotating asymmetric session id.
