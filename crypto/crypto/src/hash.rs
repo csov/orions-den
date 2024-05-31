@@ -6,6 +6,27 @@ pub fn new(data: impl AsRef<[u8]>) -> Hash {
     blake3::hash(data.as_ref()).into()
 }
 
+#[derive(Default)]
+pub struct HashBuffer(blake3::Hasher);
+
+impl codec::Buffer for HashBuffer {
+    fn extend_from_slice(&mut self, slice: &[u8]) -> Option<()> {
+        self.0.update(slice);
+        Some(())
+    }
+
+    fn push(&mut self, byte: u8) -> Option<()> {
+        self.0.update(&[byte]);
+        Some(())
+    }
+}
+
+impl Into<Hash> for HashBuffer {
+    fn into(self) -> Hash {
+        self.0.finalize().into()
+    }
+}
+
 #[must_use]
 pub fn combine(left: Hash, right: Hash) -> Hash {
     let mut hasher = blake3::Hasher::new();

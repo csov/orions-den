@@ -74,30 +74,9 @@ impl<T> Proof<T> {
     where
         T: Encode,
     {
-        struct BlakeBuffer(blake3::Hasher);
-
-        impl codec::Buffer for BlakeBuffer {
-            fn extend_from_slice(&mut self, slice: &[u8]) -> Option<()> {
-                self.0.update(slice);
-                Some(())
-            }
-
-            fn push(&mut self, byte: u8) -> Option<()> {
-                self.0.update(&[byte]);
-                Some(())
-            }
-        }
-
-        impl AsMut<[u8]> for BlakeBuffer {
-            fn as_mut(&mut self) -> &mut [u8] {
-                unimplemented!()
-            }
-        }
-
-        let mut hasher = BlakeBuffer(blake3::Hasher::new());
+        let mut hasher = crate::hash::HashBuffer::default();
         (nonce, context).encode(&mut hasher).unwrap();
-
-        hasher.0.finalize().into()
+        hasher.into()
     }
 
     pub fn verify(&self) -> bool
