@@ -14,16 +14,16 @@ description = "interface for interacting with chain"
 [dependencies]
 futures = { version = "0.3.29", features = ["executor"] }
 log = { workspace = true }
-subxt = { version = "0.35", default-features = false }
-subxt-signer = { version = "0.35", features = ["subxt", "sr25519", "std"], default-features = false }
+subxt = { version = "0.35" }
+subxt-signer = { version = "0.35", features = ["subxt", "sr25519", "std"] }
 parity-scale-codec = "3.6.5"
 
 chain-types = { workspace = true }
 anyhow.workspace = true
 chain-api-spec = { version = "0.1.0", path = "../api-spec" }
-
-[features]
-native = ["subxt/default", "subxt-signer/default", "chain-types/native"]
+tokio = "1.38.0"
+clap = { version = "4.5.4", features = ["derive", "env"] }
+codec.workspace = true
 
 [lints]
 workspace = true

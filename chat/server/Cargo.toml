@@ -38,6 +38,7 @@ lru = { version = "0.12.3", features = ["nightly"] }
 base64 = "0.22.1"
 merkle-tree = { version = "0.1.0", path = "../../crypto/merkle-tree" }
 gateway = { version = "0.1.0", path = "../../protocols/gateway" }
+rand_chacha = "0.3.1"
 
 [lints]
 workspace = true

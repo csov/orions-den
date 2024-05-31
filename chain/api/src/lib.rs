@@ -48,12 +48,6 @@ pub type NodeIdentity = crypto::Hash;
 pub type NodeVec = Vec<(NodeIdentity, SocketAddr)>;
 
 pub const USER_NAME_CAP: usize = 32;
-pub const SUBSCRIPTION_TIMEOUT: u64 = 60 * 60 * 24 * 31;
-pub const MIN_SUB_FUNDS: Balance = 1_000_000_000;
-
-pub fn is_valid_sub(sub: &Subscription, now: u64) -> bool {
-    sub.funds >= MIN_SUB_FUNDS && sub.created_at + SUBSCRIPTION_TIMEOUT >= now
-}
 
 pub async fn wait_for_in_block(
     mut progress: TxProgress<Config, OnlineClient<Config>>,

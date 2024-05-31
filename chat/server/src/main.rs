@@ -20,13 +20,14 @@ use {
     anyhow::Context as _,
     api::{chat, profile, FullReplGroup},
     arrayvec::ArrayVec,
-    chain_api::{ChatStakeEvent, NodeIdentity, NodeKeys, NodeVec, StakeEvents},
+    chain_api_spec::{Mnemonic, NodeEvent, NodeId},
     chat_spec::{
         ChatError, ChatName, Identity, Prefix, ReplVec, RequestHeader, ResponseHeader, Topic,
         REPLICATION_FACTOR,
     },
     clap::Parser,
     codec::{DecodeOwned, Encode},
+    crypto::{enc, sign},
     dashmap::{mapref::entry::Entry, DashMap, DashSet},
     dht::{Route, SharedRoutingTable},
     handlers::CallId,
@@ -43,13 +44,14 @@ use {
     },
     onion::{key_share, EncryptedStream, PathId},
     opfusk::{PeerIdExt, ToPeerId},
-    rand_core::OsRng,
+    rand_chacha::ChaChaRng,
+    rand_core::{OsRng, SeedableRng},
     std::{
         collections::HashMap,
         error::Error,
         future::Future,
         io,
-        net::Ipv4Addr,
+        net::{IpAddr, Ipv4Addr, SocketAddr},
         ops::DerefMut,
         path::PathBuf,
         task::Poll,
@@ -77,18 +79,18 @@ async fn main() -> anyhow::Result<()> {
     env_logger::init();
 
     let node_config = NodeConfig::parse();
-    let keys = NodeKeys::from_mnemonic(&node_config.chain.mnemonic);
-    let (node_list, stake_events) = node_config.chain.clone().connect_chat().await?;
-    reputation::Rep::report_at_background(keys.identity(), node_config.chain.clone());
+    let keys = NodeKeys::from_mnemonic(&node_config.mnemonic);
+    let (client, events) = chain_api_spec::Client::new(&node_config.chain_backend)?;
+    reputation::Rep::report_at_background(keys.identity(), client.clone());
 
-    Server::new(node_config, keys, node_list, stake_events).await?.await;
+    Server::new(node_config, keys, client, events).await?.await;
 
     Ok(())
 }
 
-type PooledStream = impl Future<Output = io::Result<(libp2p::Stream, RequestHeader, NodeIdentity)>>;
+type PooledStream = impl Future<Output = io::Result<(libp2p::Stream, RequestHeader, NodeId)>>;
 
-fn pool_stream(peer: NodeIdentity, mut stream: libp2p::Stream) -> PooledStream {
+fn pool_stream(peer: NodeId, mut stream: libp2p::Stream) -> PooledStream {
     async move {
         let mut buf = [0; std::mem::size_of::<RequestHeader>()];
         tokio::time::timeout(STREAM_POOL_STREAM_LIFETIME, stream.read_exact(&mut buf)).await??;
@@ -108,17 +110,19 @@ pub struct NodeConfig {
     rpc_timeout: u64,
     /// The path to node preserved data
     data_dir: PathBuf,
-    #[clap(flatten)]
-    chain: chain_api::EnvConfig,
+    /// Node key seed
+    mnemonic: Mnemonic,
+    /// Chain backend to use with this node
+    chain_backend: PathBuf,
 }
 
 struct Server {
     swarm: libp2p::swarm::Swarm<Behaviour>,
     context: Context,
-    stake_events: StakeEvents<ChatStakeEvent>,
-    stream_requests: mpsc::Receiver<(NodeIdentity, oneshot::Sender<libp2p::Stream>)>,
-    penidng_stream_requests: HashMap<NodeIdentity, Vec<oneshot::Sender<libp2p::Stream>>>,
-    recycled_streams: mpsc::Receiver<(NodeIdentity, libp2p::Stream)>,
+    node_events: chain_api_spec::NodeEventStream,
+    stream_requests: mpsc::Receiver<(NodeId, oneshot::Sender<libp2p::Stream>)>,
+    penidng_stream_requests: HashMap<NodeId, Vec<oneshot::Sender<libp2p::Stream>>>,
+    recycled_streams: mpsc::Receiver<(NodeId, libp2p::Stream)>,
     stream_pool: FuturesUnordered<PooledStream>,
 }
 
@@ -126,10 +130,16 @@ impl Server {
     async fn new(
         config: NodeConfig,
         keys: NodeKeys,
-        node_list: NodeVec,
-        stake_events: StakeEvents<ChatStakeEvent>,
+        mut client: chain_api_spec::Client,
+        node_events: chain_api_spec::NodeEventStream,
     ) -> anyhow::Result<Self> {
         use libp2p::core::Transport;
+
+        log::error!("{:?}", "fooo");
+
+        let node_list = client.list_nodes().await?;
+
+        log::error!("{:?}", node_list);
 
         let NodeConfig { port, ws_port, idle_timeout, .. } = config;
 
@@ -169,14 +179,11 @@ impl Server {
                     .keep_alive_interval(Duration::from_secs(100))
                     .build()
                     .include_in_vis(sender.clone()),
-                dht: dht::Behaviour::new(chain_api::filter_incoming),
+                dht: dht::Behaviour::default(),
                 report: topology_wrapper::report::new(receiver),
                 streaming: streaming::Behaviour::new(|| chat_spec::PROTO_NAME)
                     .include_in_vis(sender),
-                gateway: gateway::Behaviour::new(Auth {
-                    client: config.chain.client().await?,
-                    allowed_port: port,
-                }),
+                gateway: gateway::Behaviour::new(Auth { client, allowed_port: port }),
             },
             keys.sign.to_peer_id(),
             libp2p::swarm::Config::with_tokio_executor()
@@ -200,8 +207,7 @@ impl Server {
             )
             .context("starting to isten for clients")?;
 
-        let node_data =
-            node_list.into_iter().map(|(id, addr)| Route::new(id, chain_api::unpack_addr(addr)));
+        let node_data = node_list.into_iter().map(|(id, addr)| Route::new(id, unpack_addr(addr)));
         swarm.behaviour_mut().dht.table.write().bulk_insert(node_data);
 
         let stream_requests = mpsc::channel(100);
@@ -226,7 +232,7 @@ impl Server {
             context,
             stream_pool: Default::default(),
             swarm,
-            stake_events,
+            node_events,
             stream_requests: stream_requests.1,
             recycled_streams: recycled_streams.1,
             penidng_stream_requests: Default::default(),
@@ -306,14 +312,18 @@ impl Server {
         }
     }
 
-    fn stake_event(&mut self, event: ChatStakeEvent) {
+    fn stake_event(&mut self, event: NodeEvent) {
+        let mut dht = self.swarm.behaviour_mut().dht.table.write();
         match event {
-            ChatStakeEvent::Voted { source, target } => reputation::Rep::get().vote(source, target),
-            ev => chain_api::stake_event(self, ev),
+            NodeEvent::Voted { source, target } => reputation::Rep::get().vote(source, target),
+            NodeEvent::Left { node } => _ = dht.remove(node),
+            NodeEvent::Join { node, addr } | NodeEvent::AddrChanged { node, addr } => {
+                _ = dht.insert(dht::Route::new(node, unpack_addr(addr)));
+            }
         }
     }
 
-    fn stream_request(&mut self, (id, sender): (NodeIdentity, oneshot::Sender<libp2p::Stream>)) {
+    fn stream_request(&mut self, (id, sender): (NodeId, oneshot::Sender<libp2p::Stream>)) {
         self.swarm.behaviour_mut().streaming.create_stream(id.to_peer_id());
         self.penidng_stream_requests.entry(id).or_default().push(sender);
     }
@@ -330,7 +340,7 @@ impl Server {
 
     async fn server_response(
         cx: Context,
-        (stream, header, identity): (libp2p::Stream, RequestHeader, NodeIdentity),
+        (stream, header, identity): (libp2p::Stream, RequestHeader, NodeId),
     ) -> io::Result<()> {
         let len = header.get_len();
 
@@ -371,11 +381,9 @@ impl Future for Server {
     ) -> Poll<Self::Output> {
         use component_utils::field as f;
 
-        let log_stake = |_: &mut Self, e| log::warn!("failed to read stake event: {e}");
-
         while component_utils::Selector::new(self.deref_mut(), cx)
             .stream(f!(mut swarm), Self::swarm_event)
-            .try_stream(f!(mut stake_events), Self::stake_event, log_stake)
+            .stream(f!(mut node_events), Self::stake_event)
             .stream(f!(mut stream_requests), Self::stream_request)
             .stream(f!(mut recycled_streams), |this, (peer, stream)| {
                 this.stream_pool.push(pool_stream(peer, stream));
@@ -518,12 +526,12 @@ async fn run_client(
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum OnlineLocation {
     Local(PathId),
-    Remote(NodeIdentity),
+    Remote(NodeId),
 }
 
 #[derive(Clone)]
 struct Auth {
-    client: chain_api::Client,
+    client: chain_api_spec::Client,
     allowed_port: u16,
 }
 
@@ -545,12 +553,12 @@ impl gateway::Auth for Auth {
     }
 
     fn auth(&mut self, node_id: gateway::NodeId) -> Self::Future {
-        let s = self.clone();
+        let mut s = self.clone();
         let now = now();
         async move {
-            match s.client.get_subscription(node_id).await {
-                Ok(Some(sub)) if chain_api::is_valid_sub(&sub, now) => {
-                    Ok(sub.created_at + chain_api::SUBSCRIPTION_TIMEOUT)
+            match s.client.get_sub(node_id).await {
+                Ok(Some(sub)) if chat_spec::is_valid_sub(&sub, now) => {
+                    Ok(sub.timetsmp + chat_spec::SUBSCRIPTION_TIMEOUT)
                 }
                 Ok(_) => Err(now + BAN_TIMEOUT),
                 Err(e) => {
@@ -570,15 +578,15 @@ const STREAM_CACHE_SIZE: usize = 10;
 
 #[derive(Default)]
 pub struct StreamCache {
-    recycled: DashMap<NodeIdentity, ArrayVec<(libp2p::Stream, Instant), STREAM_CACHE_SIZE>>,
+    recycled: DashMap<NodeId, ArrayVec<(libp2p::Stream, Instant), STREAM_CACHE_SIZE>>,
 }
 
 impl StreamCache {
-    fn recycle(&self, peer: NodeIdentity, stream: libp2p::Stream) {
+    fn recycle(&self, peer: NodeId, stream: libp2p::Stream) {
         _ = self.recycled.entry(peer).or_default().try_push((stream, Instant::now()));
     }
 
-    fn reuse(&self, peer: NodeIdentity) -> Option<libp2p::Stream> {
+    fn reuse(&self, peer: NodeId) -> Option<libp2p::Stream> {
         let mut slot = self.recycled.get_mut(&peer)?;
         slot.retain(|(_, time)| {
             time.elapsed() < STREAM_POOL_STREAM_LIFETIME - Duration::from_secs(2)
@@ -600,10 +608,10 @@ pub struct OwnedContext {
     profile_subs: DashMap<Identity, (PathId, CallId)>,
     ongoing_recovery: DashSet<Topic>,
     clients: DashMap<PathId, Client>,
-    stream_requests: mpsc::Sender<(NodeIdentity, oneshot::Sender<libp2p::Stream>)>,
-    recycled_streams: mpsc::Sender<(NodeIdentity, libp2p::Stream)>,
+    stream_requests: mpsc::Sender<(NodeId, oneshot::Sender<libp2p::Stream>)>,
+    recycled_streams: mpsc::Sender<(NodeId, libp2p::Stream)>,
     stream_cache: StreamCache,
-    local_peer_id: NodeIdentity,
+    local_peer_id: NodeId,
     dht: SharedRoutingTable,
 }
 
@@ -651,7 +659,7 @@ impl OwnedContext {
         true
     }
 
-    async fn open_stream_with(&self, node: NodeIdentity) -> Option<libp2p::Stream> {
+    async fn open_stream_with(&self, node: NodeId) -> Option<libp2p::Stream> {
         if let Some(stream) = self.stream_cache.reuse(node) {
             return Some(stream);
         }
@@ -664,7 +672,7 @@ impl OwnedContext {
     async fn send_rpc<R: DecodeOwned>(
         &self,
         topic: impl Into<Topic>,
-        peer: NodeIdentity,
+        peer: NodeId,
         send_mail: Prefix,
         body: impl Encode,
     ) -> Result<R, ChatError> {
@@ -700,7 +708,7 @@ impl OwnedContext {
         topic: impl Into<Topic>,
         id: Prefix,
         body: impl Encode,
-    ) -> Result<ReplVec<(NodeIdentity, R)>, ChatError> {
+    ) -> Result<ReplVec<(NodeId, R)>, ChatError> {
         self.repl_rpc_low(topic, id, &body.to_bytes()).await
     }
 
@@ -709,7 +717,7 @@ impl OwnedContext {
         topic: impl Into<Topic>,
         id: Prefix,
         msg: &[u8],
-    ) -> Result<ReplVec<(NodeIdentity, R)>, ChatError> {
+    ) -> Result<ReplVec<(NodeId, R)>, ChatError> {
         let topic = topic.into();
         let Some(others) = self.get_others(topic) else { return Err(ChatError::NoReplicator) };
 
@@ -774,7 +782,7 @@ impl OwnedContext {
         self.get_others_for(topic, self.local_peer_id)
     }
 
-    fn get_others_for(&self, topic: impl Into<Topic>, id: NodeIdentity) -> Option<FullReplGroup> {
+    fn get_others_for(&self, topic: impl Into<Topic>, id: NodeId) -> Option<FullReplGroup> {
         let topic = topic.into();
         let mut others =
             self.dht.read().closest::<{ REPLICATION_FACTOR.get() + 1 }>(topic.as_bytes());
@@ -790,5 +798,42 @@ impl OwnedContext {
             Topic::Profile(profile) => self.storage.has_profile(profile),
             Topic::Chat(chat) => self.storage.has_chat(chat),
         }
+    }
+}
+
+pub fn unpack_addr(addr: impl Into<SocketAddr>) -> Multiaddr {
+    let addr = addr.into();
+    Multiaddr::empty()
+        .with(match addr.ip() {
+            IpAddr::V4(ip) => multiaddr::Protocol::Ip4(ip),
+            IpAddr::V6(ip) => multiaddr::Protocol::Ip6(ip),
+        })
+        .with(multiaddr::Protocol::Tcp(addr.port()))
+}
+
+#[derive(Clone)]
+pub struct NodeKeys {
+    pub enc: enc::Keypair,
+    pub sign: sign::Keypair,
+}
+
+impl NodeKeys {
+    pub fn identity(&self) -> NodeId {
+        self.sign.identity()
+    }
+
+    pub fn enc_hash(&self) -> crypto::Hash {
+        crypto::hash::new(self.enc.public_key())
+    }
+
+    pub fn from_mnemonic(mnemonic: &Mnemonic) -> Self {
+        let seed = crypto::hash::new(mnemonic.to_seed(""));
+        let mut rng = ChaChaRng::from_seed(seed);
+        Self { enc: enc::Keypair::new(&mut rng), sign: sign::Keypair::new(rng) }
+    }
+
+    pub fn random() -> Self {
+        let mut rng = OsRng;
+        Self { enc: enc::Keypair::new(&mut rng), sign: sign::Keypair::new(rng) }
     }
 }

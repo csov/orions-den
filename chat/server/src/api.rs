@@ -1,6 +1,6 @@
 use {
     crate::{rate_map, reputation::Rated, Context, OnlineLocation},
-    chain_api::NodeIdentity,
+    chain_api_spec::NodeId,
     chat_spec::{
         rpcs, ChatError, ChatName, GroupVec, Identity, Prefix, ReplVec, Topic, REPLICATION_FACTOR,
     },
@@ -117,7 +117,7 @@ handlers::quick_impl_from_request! {State => [
         .read()
         .closest::<{REPLICATION_FACTOR.get() + 1}>(state.topic.as_bytes())
         .into_iter()
-        .filter(|&r| NodeIdentity::from(r) != state.context.local_peer_id)
+        .filter(|&r| NodeId::from(r) != state.context.local_peer_id)
         .collect(),
     Topic => |state| state.topic,
     Identity => |state| match state.topic {

@@ -10,7 +10,8 @@ edition.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-bip39 = "2.0.0"
+bip39 = { version = "2.0.0", features = ["rand"] }
+codec.workspace = true
 crypto.workspace = true
 futures.workspace = true
 libloading = "0.8.3"

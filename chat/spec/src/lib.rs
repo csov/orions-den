@@ -10,6 +10,7 @@
 
 use {
     arrayvec::ArrayVec,
+    chain_api_spec::{Balance, Subscription},
     codec::Codec,
     crypto::proof::{Nonce, Proof},
     libp2p::StreamProtocol,
@@ -18,6 +19,8 @@ use {
 
 pub const REPLICATION_FACTOR: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(4) };
 pub const PROTO_NAME: StreamProtocol = StreamProtocol::new("/orion-den/chat/0.1.0");
+pub const SUBSCRIPTION_TIMEOUT: u64 = 60 * 60 * 24 * 31;
+pub const MIN_SUB_FUNDS: Balance = 1_000_000_000;
 
 pub type Prefix = [u8; 2];
 pub type BlockNumber = u64;
@@ -64,6 +67,10 @@ pub mod rpcs {
 }
 
 pub use {chat::*, profile::*};
+
+pub fn is_valid_sub(sub: &Subscription, now: u64) -> bool {
+    sub.amount >= MIN_SUB_FUNDS && sub.timetsmp + SUBSCRIPTION_TIMEOUT >= now
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Codec, thiserror::Error)]
 pub enum ChatError {

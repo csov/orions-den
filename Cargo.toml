@@ -57,6 +57,7 @@ handlers = { path = "utils/handlers" }
 websocket-websys = { path = "utils/websocket-websys" }
 
 chain-api = { path = "chain/api", default-features = false }
+chain-api-spec = { path = "chain/api-spec" }
 chain-types = { path = "chain/types", default-features = false }
 storage-spec = { path = "storage/spec" }
 berkleamp-welch = { path = "storage/berkleamp-welch" }

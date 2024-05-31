@@ -84,7 +84,7 @@ fn form(
         // TODO: notifi user about the paymant
         let sub = client.get_subscription(keys.identity()).await?;
         let now = js_sys::Date::new_0().get_time() as u64 / 1000;
-        if !sub.is_some_and(|sub| chain_api::is_valid_sub(&sub, now)) {
+        if !sub.is_some_and(|sub| chat_spec::is_valid_sub(&sub, now)) {
             // TODO: we need better checking here
             let enough_funds =
                 client.get_balance().await?.is_some_and(|b| b >= chain_api::MIN_SUB_FUNDS * 2);

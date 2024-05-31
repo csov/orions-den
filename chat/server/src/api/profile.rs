@@ -1,9 +1,8 @@
 use {
     crate::{storage::profile, OnlineLocation},
-    chain_api::Nonce,
     chat_spec::{rpcs, ChatError, FetchProfileResp, Identity, Mail},
     codec::{Decode, Reminder, ReminderOwned},
-    crypto::proof::Proof,
+    crypto::proof::{Nonce, Proof},
     handlers::{self as hds, Dec},
     hds::ArrDec,
     merkle_tree::MerkleTree,

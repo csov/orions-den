@@ -90,7 +90,7 @@ impl<O> DowncastNonce<O> for anyhow::Result<O> {
 //pub struct RawStorageRequest {
 //    pub prefix: u8,
 //    pub payload: Vec<u8>,
-//    pub identity: NodeIdentity,
+//    pub identity: NodeId,
 //    pub addr: SocketAddr,
 //    pub response: Result<oneshot::Sender<libp2p::Stream>, oneshot::Sender<RawResponse>>,
 //}
@@ -98,7 +98,7 @@ impl<O> DowncastNonce<O> for anyhow::Result<O> {
 //pub struct RawSateliteRequest {
 //    pub prefix: u8,
 //    pub payload: Vec<u8>,
-//    pub identity: NodeIdentity,
+//    pub identity: NodeId,
 //    pub response: oneshot::Sender<RawResponse>,
 //}
 

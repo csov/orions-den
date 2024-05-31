@@ -123,12 +123,14 @@ run_nodes() { # <exe> <count> - run nodes of a certain type
 		export MNEMONIC=$(load_mnemonic $EXE-$i)
 		export NONCE=$(alloc_nonce)
 		export STORAGE_DIR="$TMP_DIR/storage/$EXE-$i"
+		export BACKEND=target/debug/chain-polkadot-api-spec
+		export POLKADOT_MNEMONIC=$MNEMONIC
 
 		IDENTITY=$($TARGET_DIR/chain-helper export-identity "$MNEMONIC" | jq -r '.sign')
 		ENC_HAHS=$($TARGET_DIR/chain-helper export-identity "$MNEMONIC" | jq -r '.enc')
 		$TARGET_DIR/chain-helper register-node //Alice $IDENTITY $ENC_HAHS 127.0.0.1:$PORT $CHAIN_NODES \
-			&& $TARGET_DIR/$EXE $PORT $WS_PORT $IDLE_TIMEOUT $RPC_TIMEOUT $STORAGE_DIR "$MNEMONIC" \
-				$CHAIN_NODES > "$TMP_DIR/logs/$EXE/$i.log" 2>&1 &
+			&& $TARGET_DIR/$EXE $PORT $WS_PORT $IDLE_TIMEOUT $RPC_TIMEOUT $STORAGE_DIR "$MNEMONIC" $BACKEND \
+				> "$TMP_DIR/logs/$EXE/$i.log" 2>&1 &
 	done
 }
 run_chat_servers() { run_nodes chat-server $NODE_COUNT; }

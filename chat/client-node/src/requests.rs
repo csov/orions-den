@@ -103,7 +103,7 @@ impl Sub<ChatName> {
 
     // pub async fn request_storage_stream(
     //     &mut self,
-    //     identity: NodeIdentity,
+    //     identity: NodeId,
     //     addr: SocketAddr,
     //     prefix: u8,
     //     request: impl Codec<'_>,
@@ -129,7 +129,7 @@ impl Sub<ChatName> {
 
     // pub async fn upload_file(
     //     &mut self,
-    //     satelite: NodeIdentity,
+    //     satelite: NodeId,
     //     size: u64,
     //     blob: impl futures::Stream<Item = Vec<u8>>,
     //     context: &impl RequestContext,
@@ -204,7 +204,7 @@ impl Sub<ChatName> {
 
     // async fn file_store_stream(
     //     &mut self,
-    //     identity: NodeIdentity,
+    //     identity: NodeId,
     //     addr: SocketAddr,
     //     proof: Proof<StoreContext>,
     // ) -> Result<libp2p::Stream, ChatError> {
@@ -213,7 +213,7 @@ impl Sub<ChatName> {
 
     // async fn allocate_file(
     //     &mut self,
-    //     satelite: NodeIdentity,
+    //     satelite: NodeId,
     //     size: u64,
     //     context: impl RequestContext,
     // ) -> Result<(File, [Proof<StoreContext>; MAX_PIECES]), ClientError> {
@@ -233,7 +233,7 @@ impl Sub<ChatName> {
 
     // pub async fn request_storage_request<'a, R: Codec<'a>>(
     //     &'a mut self,
-    //     identity: NodeIdentity,
+    //     identity: NodeId,
     //     addr: SocketAddr,
     //     prefix: u8,
     //     request: impl Codec<'_>,
@@ -260,7 +260,7 @@ impl Sub<ChatName> {
 
     // pub async fn request_satelite_request<'a, R: Codec<'a>>(
     //     &'a mut self,
-    //     identity: NodeIdentity,
+    //     identity: NodeId,
     //     prefix: u8,
     //     request: impl Codec<'_>,
     // ) -> Result<R, ClientError> {

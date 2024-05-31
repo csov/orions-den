@@ -1,13 +1,13 @@
 use {
     crate::{api::FullReplGroup, Context},
     anyhow::Context as _,
-    chain_api::{NodeIdentity, Nonce},
+    chain_api_spec::NodeId,
     chat_spec::{
         BlockNumber, ChatError, ChatName, Cursor, Identity, Member, ReplVec,
         MAX_MESSAGE_FETCH_SIZE, MAX_MESSAGE_SIZE, REPLICATION_FACTOR,
     },
     codec::{Encode, ReminderOwned},
-    crypto::proof::{NonceInt, Proof},
+    crypto::proof::{Nonce, NonceInt, Proof},
     dht::U256,
     lmdb_zero::traits::LmdbResultExt,
     lru::LruCache,
@@ -395,7 +395,7 @@ impl Handle {
 
     pub fn vote(
         &self,
-        origin: NodeIdentity,
+        origin: NodeId,
         bn: BlockNumber,
         hash: crypto::Hash,
         agrees: bool,
@@ -424,7 +424,7 @@ impl Handle {
 
     pub fn proposal(
         &self,
-        origin: NodeIdentity,
+        origin: NodeId,
         group: FullReplGroup,
         number: BlockNumber,
         block: Vec<u8>,
@@ -456,7 +456,7 @@ impl Handle {
 
     fn proposal_low(
         &self,
-        origin: NodeIdentity,
+        origin: NodeId,
         group: FullReplGroup,
         number: BlockNumber,
         block: Vec<u8>,

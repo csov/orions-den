@@ -1,6 +1,6 @@
 use {
     crate::api::Origin,
-    chain_api::NodeIdentity,
+    chain_api_spec::{Client, NodeId},
     chat_spec::ChatError,
     libp2p::futures::task::AtomicWaker,
     opfusk::PeerIdExt,
@@ -59,8 +59,8 @@ where
 }
 
 pub struct Rep {
-    ratings: dashmap::DashMap<NodeIdentity, u64>,
-    to_punish: Mutex<Vec<NodeIdentity>>,
+    ratings: dashmap::DashMap<NodeId, u64>,
+    to_punish: Mutex<Vec<NodeId>>,
     waker: AtomicWaker,
 }
 
@@ -76,7 +76,7 @@ impl Rep {
         &REP
     }
 
-    pub fn rate(&self, identity: NodeIdentity, severity: i64) {
+    pub fn rate(&self, identity: NodeId, severity: i64) {
         let mut rat = self.ratings.entry(identity).or_default();
         *rat = rat.saturating_add_signed(severity);
 
@@ -87,20 +87,15 @@ impl Rep {
         }
     }
 
-    pub fn report_at_background(us: NodeIdentity, chain: chain_api::EnvConfig) {
+    pub fn report_at_background(us: NodeId, client: Client) {
         tokio::spawn(async move {
-            if let Err(err) = Self::get().report_loop(us, chain).await {
+            if let Err(err) = Self::get().report_loop(us, client).await {
                 log::error!("in report loop: {:?}", err);
             }
         });
     }
 
-    async fn report_loop(
-        &'static self,
-        us: NodeIdentity,
-        chain: chain_api::EnvConfig,
-    ) -> anyhow::Result<!> {
-        let client = chain.client().await?;
+    async fn report_loop(&'static self, us: NodeId, mut client: Client) -> anyhow::Result<!> {
         loop {
             let identity = poll_fn(|cx| {
                 let mut to_punish = self.to_punish.lock().unwrap();
@@ -118,7 +113,7 @@ impl Rep {
         }
     }
 
-    pub fn vote(&self, source: NodeIdentity, target: NodeIdentity) {
+    pub fn vote(&self, source: NodeId, target: NodeId) {
         if self.ratings.get(&source).is_some_and(|r| *r.value() > Self::VOTE_DOWN_TRASHOLD / 2) {
             return;
         }

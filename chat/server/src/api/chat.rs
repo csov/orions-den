@@ -144,7 +144,7 @@ pub async fn recover(cx: crate::Context, name: ChatName) -> Result<()> {
 }
 
 fn reconstruct_chat(
-    block_data: &mut ReplVec<(NodeIdentity, HashMap<Identity, Member>)>,
+    block_data: &mut ReplVec<(NodeId, HashMap<Identity, Member>)>,
 ) -> HashMap<Identity, Member> {
     fn retain_outliers<T>(
         block_data: &mut ReplVec<T>,
@@ -164,7 +164,7 @@ fn reconstruct_chat(
     }
 
     fn retain_members(
-        block_data: &mut ReplVec<(NodeIdentity, HashMap<Identity, Member>)>,
+        block_data: &mut ReplVec<(NodeId, HashMap<Identity, Member>)>,
     ) -> HashMap<Identity, Member> {
         let mut member_count_map = HashMap::<Identity, ReplVec<Member>>::new();
         for (id, other) in block_data.iter().flat_map(|(_, data)| data) {
