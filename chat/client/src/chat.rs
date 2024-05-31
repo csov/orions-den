@@ -140,7 +140,7 @@ pub fn Chat(state: ReadSignal<Option<crate::State>>) -> impl IntoView {
             _ = sender; // TODO: verify this matches with the username
 
             handled_spawn_local("appending message", async move {
-                let message = chain_api::decrypt(message, secret)?;
+                let message = chat_client_node::decrypt(message, secret)?;
                 let msg = String::from_utf8(message)?;
                 let client = state.with_keys(UserKeys::chain_client).await?;
                 append_message(client.fetch_username(sender).await?, msg);

@@ -1,7 +1,6 @@
 use {
     crate::Storage,
     anyhow::Context,
-    chain_api::encrypt,
     chat_spec::*,
     codec::{Codec, Decode, DecodeOwned, Encode},
     crypto::proof::Nonce,
@@ -58,7 +57,7 @@ fn get_encrypted<T: DecodeOwned>(
     decryption_key: SharedSecret,
 ) -> anyhow::Result<T> {
     let VaultValue(v) = Storage::get(key, user).context("not found")?;
-    let v = chain_api::decrypt(v, decryption_key).context("decryption failed")?;
+    let v = crate::decrypt(v, decryption_key).context("decryption failed")?;
     Decode::decode_exact(&v).context("invalid encoding")
 }
 
@@ -93,9 +92,9 @@ impl Vault {
             }
         }
 
-        ensure(chats(), user, VaultKey::Chats, encrypt(vec![0], key));
+        ensure(chats(), user, VaultKey::Chats, crate::encrypt(vec![0], key));
         ensure(theme(), user, VaultKey::Theme, Theme::default().to_bytes());
-        ensure(friends(), user, VaultKey::FriendNames, encrypt(vec![0], key));
+        ensure(friends(), user, VaultKey::FriendNames, crate::encrypt(vec![0], key));
     }
 
     pub fn from_storage(key: SharedSecret, user: Identity) -> anyhow::Result<Self> {
@@ -182,7 +181,7 @@ impl Vault {
 
         let value = match id {
             VCI::Theme => repr,
-            _ => encrypt(repr, key),
+            _ => crate::encrypt(repr, key),
         };
 
         Some(value)

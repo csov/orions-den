@@ -1,8 +1,42 @@
 # Introduction
 
-TODO
+It is becoming increasingly common for entities in control of social media to abuse their growing monopoly over information. What we say and listen to is getting gradually more manipulated. It is not unheard of to see people being invisibly silenced and filtered. In some cases even stripped of their job security, because they dared to publicly disagree with what we are supposed to think. Suffice to say, we are slowly getting robbed of our essential rights to speak, and most importantly, to listen freely.
 
-# Fundamentals
+In this paper, we present a decentralized messaging network that gives people option to opt out of the systems in place.
+
+#### Economy
+
+We put emphasis on economical viability. Most popular social media platforms relay on investment incentivized by the amount of users they have. This approach is unsustainable, social platforms are already trying to find ways to actually be profitable, worsening user experience.
+
+We instead create a circular economy where users pay for the usage to the node operators in cryptocurrency. The cryptocurrency needs to have capable enough smart-contracts to implement central fund that periodically finances the operators (treasury). Operators also need to be able to check payment status of users to apply access control. Each feature network offers may use different amount of resources so treasury needs to differentiate and compensate accordingly.
+
+Network needs to protect from misbehaving operators. To become an operator, one needs to stake certain amount to be included in network topology. Operators can vote to slash each other stake based of majority to exclude them from the network. Amount of stake also affects the reward node gets.
+
+Preferably, the prices should be dictated by operators instead of smart-contracts. Topic, time-stamp, and amount should suffice for operators to determine whether the service is financed. This creates competitive market that can keep up with volatile currencies.
+
+#### Privacy and Anonymity
+
+Network offers highest level of privacy:
+- the connection to server is authenticated and encrypted with post-quantum algorithms
+- user connects to server with their data trough two relays to hide the IP address, payment for relay use and other network features can be form a different wallets
+- client, we provide, uses post-quantum secure forward secrecy
+- ephemeral messages are deleted upon reading
+
+#### Data Sovereignty
+
+Data that is retained permanently is stored in message block-chain. This protects the message history from being altered and makes it easy to save history to cold storage. The ledger is not global to the network, rather, users can create topic specific block-chains that are validated in parallel by random subset of operators.
+
+#### Accessibility
+
+For client to use all the capabilities for the network, only reliable connection is required. This can be provided by operating system and browser alike. The reference client we provide is fully based on browser technologies and can be hosted as a static website.
+
+#### DDOS protection
+
+In some cases, tracking how much resources users consume is too costly or reduces privacy. In these cases network uses Proof of Work to incur costs to malicious users. For example, anyone can send ephemeral messages to anyone, this means that one can also purposefully fill unread message list with junk to prevent others from sending legitimate messages. If servers only accept messages with valid PoW they can make such attacks hard to maintain.
+
+# Technical Description
+
+Following describes explanation and reasoning behind technical decisions.
 
 ## Core encryption primitives
 
@@ -44,7 +78,7 @@ flowchart TB
 
 ## Post-Quantum Transport Layer Security (PQTLS)
 
-Network uses custom post-quantum handshake based of Falkon for identity verification and Kyber for key exchange. We decided to make our own since we only communicate within the network and standards like **Noise** or **TLS** either aren't post-quantum secure or don't work in browsers. Besides, its trivial to implement.
+Network uses custom post-quantum handshake based of Falkon for identity verification and Kyber for key exchange. We decided to make our own since we only communicate within the network and standards like **Noise** or **TLS** either aren't post-quantum secure or don't work in browsers (yet). Besides, its trivial to implement.
 
 ```mermaid
 sequenceDiagram
@@ -59,11 +93,12 @@ sequenceDiagram
 
 ## Onion routing
 
-We use onion routing as a form of decentralized VPN. Since we only need to relay requests to servers within the network, we don't need to be compatible with any existing TOR network. Key differences form TOR (as an example):
+To access the network, users need to connect trough decentralized VPN implemented trough onion routing. Since we only need to relay requests to servers within the network, we use custom protocol optimized for this. Key differences form TOR (as an example):
 
 - we always use 2 relays
 - we use our own encryption scheme based of Kyber
 - the protocol is browser agnostic (we only require reliable connection)
+- clients can choose the route, which means they can create routes trough nearby relays (within same continent) to speed up the connection
 
 ### Setup
 
@@ -97,7 +132,7 @@ flowchart TB
 
 ## Communication
 
-After the initialization packet gets delivered, both sides have **shared secret** and can simply use AES-GCM to encrypt and decrypt messages on transit. In this case we don't need need multiple layers of encryption, since route is established and nodes only forward encrypted stream.
+After the initialization packet gets delivered, both sides have **shared secret** and can simply use AES-GCM to encrypt and decrypt messages on transit. In this case we don't need multiple layers of encryption, since route is established and nodes only forward encrypted stream.
 
 ```mermaid
 flowchart TB
@@ -116,13 +151,13 @@ flowchart TB
     aesGcmEncrypt --> Node1 --> Node2 --> aesGcmDecrypt
 ```
 
-# The Message Relay Network
-
-The network provides most flexible, bare minimum to implement highly secure peer to peer, ephemeral messaging. Exposed API makes no assumption about format and encryption to the extent that two clients can not understand each other. This is simpler to implement and allows for more types of clients.
-
 ## Distributed Hash Table
 
-Location of any data related to users is stored on the network with deterministic location. Since all nodes need to stake on chain, their public key and IP address is publicly known. User with full topology can compute which nodes are the closest to the given key (XOR distance). This is magnitudes more performant the using Dynamic DHT like Kademlia (for our use-case). Nodes can listen for events form the block-chain to always have synchronized topology.
+Location of any data related to users is stored on the network with deterministic location. Each operator uploads DNS record along their stake so that users can construct full network topology. Full topology allows anyone to compute which nodes store a given **topic**. This is magnitudes more performant the using Dynamic DHT like Kademlia (for our use-case). Nodes can listen for events form the block-chain to always have synchronized topology, while users may cache it and invalidate it anytime they encounter errors related to outdated topology.
+
+## The Message Relay Network
+
+The network provides most flexible, bare minimum to implement highly secure peer to peer, ephemeral messaging. Exposed API makes no assumption about format and encryption to the extent that two clients can not understand each other. This is simpler to implement and allows for more types of clients.
 
 ## User Profiles
 

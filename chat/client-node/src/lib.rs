@@ -22,11 +22,12 @@ use {
     argon2::Argon2,
     chain_api::{Nonce, Profile},
     chat_spec::*,
-    codec::{DecodeOwned, Encode},
+    codec::{Codec, DecodeOwned, Encode},
     crypto::{enc, rand_core::CryptoRngCore, sign},
     libp2p::futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
-    rand::SeedableRng,
-    std::{array, future::Future, io, sync::Arc, time::Duration},
+    onion::SharedSecret,
+    rand::{rngs::OsRng, SeedableRng},
+    std::{array, future::Future, io, marker::PhantomData, sync::Arc, time::Duration},
     storage_spec::ClientError,
 };
 pub use {
@@ -266,3 +267,51 @@ pub fn spawn(fut: impl Future + Send + 'static) {
     let task = async move { _ = fut.await };
     wasm_if!(wasm_bindgen_futures::spawn_local(task), tokio::spawn(task));
 }
+
+#[derive(Codec)]
+pub struct Encrypted<T>(Vec<u8>, PhantomData<T>);
+
+impl<T> Encrypted<T> {
+    pub fn new(data: T, secret: SharedSecret) -> Self
+    where
+        T: Encode,
+    {
+        Self(encrypt(data.to_bytes(), secret), PhantomData)
+    }
+
+    pub fn decrypt(&mut self, secret: SharedSecret) -> Option<T>
+    where
+        T: DecodeOwned,
+    {
+        let data = crypto::decrypt(&mut self.0, secret)?;
+        T::decode_exact(&data)
+    }
+}
+
+pub fn encrypt(mut data: Vec<u8>, secret: SharedSecret) -> Vec<u8> {
+    let tag = crypto::encrypt(&mut data, secret, OsRng);
+    data.extend(tag);
+    data
+}
+
+pub fn decrypt(mut data: Vec<u8>, secret: SharedSecret) -> Result<Vec<u8>, DecryptError> {
+    match crypto::decrypt(&mut data, secret) {
+        Some(slc) => {
+            let len = slc.len();
+            data.truncate(len);
+            Ok(data)
+        }
+        None => Err(DecryptError(data)),
+    }
+}
+
+#[derive(Debug)]
+pub struct DecryptError(Vec<u8>);
+
+impl std::fmt::Display for DecryptError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "failed to decrypt data: {:?}", self.0)
+    }
+}
+
+impl std::error::Error for DecryptError {}

@@ -1,0 +1,20 @@
+[package]
+name = "chain-api-spec"
+version = "0.1.0"
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+bip39 = "2.0.0"
+crypto.workspace = true
+futures.workspace = true
+libloading = "0.8.3"
+rand_chacha = "0.3.1"
+
+[lints]
+workspace = true

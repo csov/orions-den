@@ -7,7 +7,6 @@
 #![allow(internal_features)]
 #![feature(ptr_internals)]
 #![feature(trait_alias)]
-#![feature(inline_const)]
 
 pub use berkleamp_welch::{DecodeError, RebuildError, ResourcesError, Share as ReconstructPiece};
 use {

@@ -1,10 +1,9 @@
 use {
     crate::{
-        ChainClientExt, ChatMeta, FriendMeta, Node, NodeHandle, RawChatMessage, RecoverMail,
-        Storage, Sub, Theme, UserKeys, Vault, VaultKey,
+        ChainClientExt, ChatMeta, Encrypted, FriendMeta, Node, NodeHandle, RawChatMessage,
+        RecoverMail, Storage, Sub, Theme, UserKeys, Vault, VaultKey,
     },
     anyhow::Context,
-    chain_api::Encrypted,
     chat_spec::*,
     codec::{Codec, Decode, Encode, ReminderOwned},
     crypto::{
@@ -481,7 +480,7 @@ pub trait RequestContext: Sized {
     async fn send_message(&self, name: ChatName, message: String) -> anyhow::Result<()> {
         let mut sub = self.subscription_for(name).await?;
         let proof = self.with_chat_and_keys(name, |c, k| {
-            let msg = ReminderOwned(chain_api::encrypt(message.into_bytes(), c.secret));
+            let msg = ReminderOwned(crate::encrypt(message.into_bytes(), c.secret));
             Proof::new(&k.sign, &mut c.action_no, msg, OsRng)
         })?;
         sub.send_message(&proof).await
@@ -505,7 +504,7 @@ pub trait RequestContext: Sized {
                 log::info!("message: {:?}", message);
                 let chat_spec::Message { sender: identity, content, .. } =
                     chat_spec::Message::decode_exact(message).context("invalid message")?;
-                let content = chain_api::decrypt(content.0.to_owned(), chat_meta.secret)
+                let content = crate::decrypt(content.0.to_owned(), chat_meta.secret)
                     .context("decrypt content")?;
                 let sender = client.fetch_username(identity).await?;
                 String::from_utf8(content)
