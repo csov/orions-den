@@ -1,6 +1,6 @@
 use {
     crate::storage::chat::UNFINALIZED_BUFFER_CAP,
-    chain_api::NodeIdentity,
+    chain_api_spec::NodeId,
     chat_spec::{
         rpcs, BlockNumber, ChatError, ChatEvent, ChatName, Cursor, Identity, Member, ReplVec,
         REPLICATION_FACTOR,

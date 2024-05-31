@@ -22,7 +22,7 @@ dashmap = "5.5.3"
 arrayvec = "0.7.4"
 
 topology-wrapper = { workspace = true }
-chain-api = { workspace = true, features = ["native"] }
+chain-api-spec = { workspace = true }
 chat-spec = { workspace = true }
 crypto = { workspace = true }
 dht = { workspace = true }

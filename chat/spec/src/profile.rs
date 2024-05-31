@@ -1,6 +1,5 @@
 use {
     arrayvec::ArrayString,
-    chain_api::{RawUserName, USER_NAME_CAP},
     codec::Codec,
     crypto::{enc, sign},
     std::iter,
@@ -11,8 +10,10 @@ pub const MAX_MAIL_SIZE: usize = 1024 * 8;
 pub const MAX_VAULT_KEY_COUNT: usize = 4096;
 pub const MAX_VAULT_VALUE_SIZE: usize = 1024 * 8;
 pub const MAX_VAULT_UPDATE_SIZE: usize = 1024 * 32;
+pub const USER_NAME_CAP: usize = 32;
 
-pub type UserName = ArrayString<32>;
+pub type UserName = ArrayString<USER_NAME_CAP>;
+pub type RawUserName = [u8; USER_NAME_CAP];
 
 #[derive(Codec)]
 #[repr(packed)]
